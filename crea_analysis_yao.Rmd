@@ -1,0 +1,75 @@
+---
+title: "Center for Research on Energy and Clean Air"
+author: "JL"
+date: "2024-11-27"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(dplyr)
+library(sf)
+library(googlesheets4)
+
+sf_use_s2(FALSE) # use sf package for spatial operations
+```
+
+## Load data
+```{r cars}
+# Download
+tmp_geojson <- tempfile(fileext = ".geojson")
+download.file(
+  "https://api.energyandcleanair.org/stations?country=GB,US,TR,PH,IN,TH&format=geojson",
+  tmp_geojson
+)
+
+# Read
+stations <- read_sf(tmp_geojson)
+stations %>% head() # preview
+
+# Download
+tmp_geojson <- tempfile(fileext = ".geojson")
+download.file(
+  "https://datahub.io/core/geo-countries/_r/-/data/countries.geojson",
+  tmp_geojson
+)
+
+# Read
+boundaries <- st_read(tmp_geojson)
+boundaries %>% head() # preview
+```
+
+## Clean data
+```{r pressure, echo=FALSE}
+st <- stations %>% 
+  # Filter for PM10 monitoring stations
+  filter(grepl("pm10", pollutants)) %>%
+  unique() %>% 
+  # Count number of PM10 stations per country
+  group_by(country_id) %>% 
+  summarise(n_pm10 = n()) %>%
+  # select(country_id, n_pm10) %>%
+  as.data.frame()
+
+bd <- boundaries %>% 
+  mutate(area_km2 = as.numeric(st_area(geometry) / 10^6)) %>% 
+  select(ADMIN, ISO_A2, area_km2) %>%
+  as.data.frame()
+
+# Merge
+df <- left_join(st, bd, by = c("country_id" = "ISO_A2")) %>% 
+  mutate(density = (n_pm10 / area_km2)*1000) %>% 
+  select(ADMIN, n_pm10, area_km2, density) %>% 
+  arrange(desc(density))
+```
+
+## Export data in google sheets
+```{r}
+sheet_write(df,
+            ss = "https://docs.google.com/spreadsheets/d/1k8EtLlOYSZ_Q0Fmmw0WSmoP4QObitn7Pas1XHgfNUFM/edit?gid=0#gid=0",
+            sheet = "Summary")
+```
+
